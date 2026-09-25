@@ -1,0 +1,85 @@
+# CodeRabbit configuration for pal-lang
+# Schema: https://coderabbit.ai/integrations/schema.v2.json
+# Docs:   https://docs.coderabbit.ai/reference/configuration
+#
+# pal-lang is a bounded local Rust prototype of a capability-safe agent
+# runtime (durable journal, effect/capability boundary, deterministic
+# replay, human-approval pause/resume). This config is tuned so CodeRabbit
+# reviews stay focused on those safety invariants instead of generic style
+# nits, since the repo is a single-maintainer prototype, not a team codebase.
+
+language: en-US
+
+reviews:
+  # Balanced feedback rather than nitpicky. This matches CodeRabbit's own
+  # default (`chill`), pinned explicitly so a future default change doesn't
+  # silently make reviews noisier on a repo this small.
+  profile: chill
+
+  # Solo-maintained repo: never let the bot gate merges on its own approval.
+  request_changes_workflow: false
+
+  auto_review:
+    enabled: true
+    drafts: false # don't spend review runs on work-in-progress drafts
+
+  high_level_summary: true
+  poem: false # no filler in review comments
+  review_status: true
+  collapse_walkthrough: true # keep the PR description short and scannable
+
+  # Real change from CodeRabbit's default ([]): exclude build output and the
+  # lockfile so every review pass stays on hand-written Rust.
+  path_filters:
+    - "!**/target/**"
+    - "!Cargo.lock"
+    - "!**/*.lock"
+
+  # Real change from CodeRabbit's default ([]): point the reviewer at the
+  # actual safety invariants per module instead of generic Rust advice.
+  path_instructions:
+    - path: "src/capability.rs"
+      instructions: >
+        This is the capability/effect authorization boundary -- the core
+        safety invariant of PAL. Flag any code path that performs an Effect
+        without going through CapabilitySet::authorize first, any new Effect
+        variant that is not matched in the authorize gate, and any `unsafe`
+        block that lacks an inline comment justifying it. Prefer an
+        exhaustive `match` over a wildcard `_ =>` arm here, since a wildcard
+        lets a new Effect silently bypass the capability check.
+
+    - path: "src/journal.rs"
+      instructions: >
+        Journal is the durable append-only event log that replay and resume
+        depend on. Flag anything that could make replay non-deterministic
+        (iteration order, wall-clock timestamps used for logic, HashMap
+        iteration order), any write path that is not strictly append-only,
+        and any error path that could silently drop or truncate an event.
+
+    - path: "src/runtime.rs"
+      instructions: >
+        Review state-machine transitions (start / step / effect / approve /
+        finish) for illegal transitions, and confirm every fallible
+        operation propagates via `Result` instead of panicking or
+        `.unwrap()`-ing -- this runtime is meant to supervise AI agent
+        tasks and must not crash the host process on bad input.
+
+    - path: "tests/**"
+      instructions: >
+        Focus review on coverage of edge cases (denied capability, replay
+        after a simulated crash, double-approval, an unknown/unhandled
+        effect) rather than style or naming. Do not flag missing doc
+        comments in test code.
+
+  tools:
+    clippy:
+      enabled: true
+    gitleaks:
+      enabled: true
+    # README/docs-only prose in this repo; keep review signal on Rust
+    # correctness instead of Markdown style nits.
+    markdownlint:
+      enabled: false
+
+chat:
+  auto_reply: true
